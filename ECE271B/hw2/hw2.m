@@ -48,7 +48,7 @@ plot(training_error)
 hold on;
 grid on;
 plot(test_error)
-title('Error vs. number of iterations')
+title('Single Layer: Error vs. number of iterations')
 legend('Training Error', 'Test Error')
 xlabel('Iterations')
 ylabel('Error %')
@@ -57,93 +57,113 @@ figure()
 plot(costVector)
 hold on;
 grid on;
-title('Cross Entropy Loss vs. number of iterations')
+title('Single Layer: Cross Entropy Loss vs. number of iterations')
 legend('Cost')
 xlabel('Iterations')
 ylabel('Cross Entropy Loss')
 
 
 %% Part 5b
-n = size(imgs, 1); %num of samples
-d = size(imgs, 2);
+%sigmoid network
+tol = 50e-5;
+maxIter = 10e4;
 k = 10; %numClasses
 lr = 10e-5; %learning rate
-batchSize = 100;
 H = 10; % number of hidden layers
-labelHotBit = hotBit(labels, k); %hot bit encoded labels
-hiddenWeights = rand(H, d); %first layer weights
-hiddenBias = zeros(H, 1);
-outputWeights = rand(k, H); %second layer weights
-outputBias = zeros(k, 1);
-tol = 10e-5;
-epochs = 500;
-% cost = 2;
-% lastCost = 1;
-losses = [];
+tStart = tic;
+[~, trainPercentError, testPercentError] = two_layer_sigmoid(imgs, labels, imgs_test, labels_test, k, lr, 10, tol, maxIter);
+
+figure()
+plot(trainPercentError)
+hold on;
+plot(testPercentError)
+grid on;
+title('Two Layer Sigmoid: Training and Test Error H = 10')
+ylabel('Error %')
+xlabel('Iterations')
+
+[~, trainPercentError, testPercentError] = two_layer_sigmoid(imgs, labels, imgs_test, labels_test, k, lr, 20, tol, maxIter);
+
+figure()
+plot(trainPercentError)
+hold on;
+plot(testPercentError)
+grid on;
+title('Two Layer Sigmoid: Training and Test Error H = 20')
+ylabel('Error %')
+xlabel('Iterations')
+
+[~, trainPercentError, testPercentError] = two_layer_sigmoid(imgs, labels, imgs_test, labels_test, k, lr, 50, tol, maxIter);
+
+figure()
+plot(trainPercentError)
+hold on;
+plot(testPercentError)
+grid on;
+title('Two Layer Sigmoid: Training and Test Error H = 50')
+ylabel('Error %')
+xlabel('Iterations')
+
+elapsedTime = toc(tStart)
+
+
+%% init values
+
+%% Two Layer ReLU Network
+
+
+
+%% Stochastic Grad Descent (mini batch)
+
+
 %%
-% works but gets stuck on some gradients, so we need to retry until its
-% unstuck
-for epoch = 1:epochs
-    % Shuffle data 
-    indices = randperm(n);
-    X_shuffled = imgs(indices, :);
-    Y_shuffled = labelHotBit(indices, :);
-    
-    for i = 1:batchSize:n
-        % Select the current batch
-        % m(i) = floor(rand(1)*n + 1);
-        % inputVector = imgs(m(i), :)';
-        endIndex = min(i + batchSize - 1, n);
-        inputBatch = X_shuffled(i:endIndex, :)'; 
-        targetBatch = Y_shuffled(i:endIndex, :)';
+
+function [losses, trainPercentError, testPercentError] = two_layer_sigmoid(imgs, labels, imgs_test, labels_test, k, lr, H, tol, maxIter)
+    n = size(imgs, 1); %num of samples
+    batchSize = n; %use all examples in batch training
+    d = size(imgs, 2);
+    labelHotBit = hotBit(labels, k); %hot bit encoded labels
+    hiddenWeights = [randn(H, d), zeros(H, 1)]; %first layer weights + bias
+    outputWeights = [randn(k, H), zeros(k, 1)]; %second layer weights + bias
+    iterNum = 1;
+    losses = [1, 2];
+    while (abs(losses(end) - losses(end-1)) > tol && iterNum < maxIter)
+        %forward pass
+        X = [imgs ,ones(n, 1)]; %60000 x 785
+        g = hiddenWeights*X';  %10 x 60000
+        y = [sigmoid(g); ones(1, size(g,2))]; %11 x 60000
+        u = outputWeights * y; %10 x 60000
+        z = softmax(u'); %60000 x 10; transposed u to fit softmax function (row wise averaging)
         
-        % Forward pass for the batch
-        % g = imgBatch * w1;
-        % y2 = sigmoid(g);
-        % u = y2 * w2;
-        % z2 = softmax(u);
-        hiddenActualInput = hiddenWeights*inputBatch + hiddenBias;
-        hiddenOutputVector = sigmoid(hiddenActualInput);
-        outputActualInput = outputWeights*hiddenOutputVector + outputBias;
-        outputVector = softmax(outputActualInput);
-        L = -sum(log(sum(outputVector .* targetBatch, 1))) / batchSize
-        losses(end+1) = L;
-        % targetVector = t(m(i), :)';
-
-
-        % Backward pass
-        % d_out = (z2 - labelBatch) / batchSize; % Normalize by batch size
-        % grad_w2 = y2' * d_out;
-        % d_hidden = (d_out * w2') .* d_sigmoid(g);
-        % grad_w1 = imgBatch' * d_hidden;
-        d_outputVector = (outputVector - targetBatch);
-        d_outputWeights = d_outputVector * hiddenOutputVector';
-        d_outputBias = sum(d_outputVector, 2) / batchSize;
-
-        d_hiddenActualInput = outputWeights'*d_outputVector;
-        d_hiddenOutputVector = d_hiddenActualInput.*d_sigmoid(hiddenOutputVector);
-        d_sigmoid(hiddenOutputVector)
+        %backward pass
+        % Error at output layer
+        error_output = z - labelHotBit; % 60000 x 10
         
-        %VANISHING GRADIENT, THIS IS ZERO FOR SOME REASONFUSAJCKL
-        d_hiddenWeights = d_hiddenOutputVector * inputBatch' / batchSize;
-        d_hiddenBias = sum(d_hiddenOutputVector, 2) / batchSize;
-
-        % update weights
-        hiddenWeights = hiddenWeights - lr*d_hiddenWeights;
-        hiddenBias = hiddenBias - lr*d_hiddenBias;
-
-        outputWeights = outputWeights - lr*d_outputWeights;
-        outputBias = outputBias - lr*d_outputBias;
-        outputWeights;
-      
+        % Gradient for output weights
+        d_outputWeights = error_output' * y'; % 10 x (H+1)
+        
+        % Calculate sigmoid derivative for hidden layer outputs
+        % Exclude the bias row for the derivative calculation
+        sigmoid_derivative = y(1:end-1, :) .* (1 - y(1:end-1, :)); % H x 60000
+        
+        % Error at hidden layer (backpropagate through the output weights)
+        % Include the bias weights in the backpropagation
+        error_hidden = (outputWeights' * error_output') .* [sigmoid_derivative; ones(1, size(sigmoid_derivative, 2))]; % (H+1) x 60000
+        
+        % Gradient for hidden weights
+        % Since X already includes a bias term, we directly use it for calculating the gradient
+        d_hiddenWeights = error_hidden(1:end-1, :) * X; % H x (d+1)
+        
+        % Update weights
+        outputWeights = outputWeights - lr * d_outputWeights; % Update output weights directly
+        hiddenWeights = hiddenWeights - lr * d_hiddenWeights; % Update hidden weights directly
+        
+        losses(iterNum) = -sum(labelHotBit.*log(z), 'all') / n;
+        trainPercentError(iterNum) = calcErrorDouble(labels, z);
+        testPercentError(iterNum) = calcErrorDouble(labels_test, forward_pass_all(imgs_test, hiddenWeights, outputWeights));
+        iterNum = iterNum + 1;
     end
-    % cost = crossEntropyCostDouble(t, forward_pass_all(imgs, hiddenWeights', outputWeights'))
-    % percentError = calcErrorDouble(labels, forward_pass_all(imgs, hiddenWeights', outputWeights'));
 end
-
-%%
-
-
 
 function [w, cost, y] = one_layer(imgs, labels, w, numClasses, learningRate)
     a = imgs*w; %should be n x k
@@ -169,7 +189,7 @@ end
 
 function output = softmax(a)
     exp_a = exp(a - max(a, [], 2)); % Improve numerical stability
-    exp_a = exp(a);
+
     output = exp_a ./ sum(exp_a, 2);
 end
 
@@ -214,10 +234,12 @@ function cost = crossEntropyCostDouble(t, y)
     cost = -sum(sum(t .* log(y))) / size(t, 1);
 end
 
-function y = forward_pass_all(imgs, w1, w2)
+function z = forward_pass_all(imgs, w1, w2)
     % Forward pass for all samples, used to compute the cost
-    g = imgs * w1;
-    y2 = sigmoid(g);
-    u = y2 * w2;
-    y = softmax(u);
+    % assumed included biases in w1 and w2 already
+    X = [imgs ,ones(size(imgs,1), 1)]; %60000 x 785
+    g = w1*X';  %10 x 60000
+    y = [sigmoid(g); ones(1, size(g,2))]; %11 x 60000
+    u = w2 * y; %10 x 60000
+    z = softmax(u'); %60000 x 10; transposed u to fit softmax function (row wise averaging)
 end
